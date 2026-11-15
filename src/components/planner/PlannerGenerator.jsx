@@ -238,9 +238,16 @@ const PlannerGenerator = ({ classroom }) => {
         {/* Syllabus Text Input & Number of Days */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.25rem' }}>
           <div>
-            <label className="form-label" htmlFor="syllabus-text-area">
-              Syllabus Topics / Extracted Content <span className="required-indicator">*</span>
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+              <label className="form-label" htmlFor="syllabus-text-area" style={{ marginBottom: 0 }}>
+                Syllabus Topics / Extracted Content <span className="required-indicator">*</span>
+              </label>
+              {extractedSyllabusText && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {extractedSyllabusText.length} characters • Cleaned & Structured
+                </span>
+              )}
+            </div>
             <textarea
               id="syllabus-text-area"
               rows={4}
@@ -252,32 +259,72 @@ const PlannerGenerator = ({ classroom }) => {
             />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-            <div style={{ width: '220px' }}>
-              <Input
-                id="planner-days-input"
-                label="Total Teaching Days"
-                type="number"
-                min="5"
-                max="180"
-                icon={Clock}
-                value={numberOfDays}
-                onChange={(e) => setNumberOfDays(e.target.value)}
-                required
-                hint="e.g. 30, 45, 60 sessions"
-                className="mb-0"
-              />
+          {/* Quick Schedule Duration Presets & Input */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Target Teaching Duration:
+              </span>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {[
+                  { label: '15 Days (Intensive)', val: '15' },
+                  { label: '30 Days (Standard)', val: '30' },
+                  { label: '45 Days (Semester)', val: '45' },
+                  { label: '60 Days (Deep Dive)', val: '60' },
+                ].map((preset) => (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() => setNumberOfDays(preset.val)}
+                    style={{
+                      fontSize: '0.75rem',
+                      padding: '0.2rem 0.55rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: numberOfDays === preset.val ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                      backgroundColor: numberOfDays === preset.val ? 'var(--accent-subtle)' : 'var(--bg-surface-subtle)',
+                      color: numberOfDays === preset.val ? 'var(--accent-text)' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      fontWeight: numberOfDays === preset.val ? 600 : 400,
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <Button
-              id="generate-planner-submit-btn"
-              variant="primary"
-              icon={Sparkles}
-              loading={generating || extracting}
-              onClick={() => handleGenerate(false)}
-            >
-              {isCached ? 'Generate New AI Plan' : 'Generate Day-by-Day Plan'}
-            </Button>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ width: '220px' }}>
+                <Input
+                  id="planner-days-input"
+                  label="Total Teaching Days"
+                  type="number"
+                  min="5"
+                  max="180"
+                  icon={Clock}
+                  value={numberOfDays}
+                  onChange={(e) => setNumberOfDays(e.target.value)}
+                  required
+                  hint="Custom number of sessions (5 - 180)"
+                  className="mb-0"
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right', maxWidth: '340px' }}>
+                  AI dynamically decomposes units into subtopics & revision for long durations, or condenses into core lectures for short durations.
+                </span>
+                <Button
+                  id="generate-planner-submit-btn"
+                  variant="primary"
+                  icon={Sparkles}
+                  loading={generating || extracting}
+                  onClick={() => handleGenerate(false)}
+                >
+                  {isCached ? 'Generate New AI Plan' : 'Generate Day-by-Day Plan'}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

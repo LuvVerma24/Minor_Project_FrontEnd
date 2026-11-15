@@ -126,6 +126,120 @@ function cleanOcrText(text) {
 }
 
 /**
+ * Stage 2: Deep Syllabus Text Cleaning
+ * Removes headers, footers, page numbers, institutional boilerplate,
+ * references, textbook lists, and exam patterns.
+ */
+export function cleanExtractedSyllabusText(rawText) {
+  if (!rawText || typeof rawText !== 'string') return '';
+
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim());
+
+  const unitHeadingRegex = /^(?:UNIT|MODULE|CHAPTER)\s*([0-9IVXLCDM]+)?\s*[:\-–\.]?\s*(.*)$/i;
+  const skipSectionHeaderRegex = /^(?:COURSE\s+OBJECTIVES?|COURSE\s+OUTCOMES?|PROGRAM\s+OUTCOMES?|CO\s*-\s*PO|BLOOM|TEXT\s*BOOKS?|RECOMMENDED\s*BOOKS?|REFERENCES?|REFERENCE\s*BOOKS?|WEB\s*RESOURCES?|ONLINE\s*RESOURCES?|EVALUATION\s+SCHEME|QUESTION\s+PAPER|EXAM\s+PATTERN|INTERNAL\s+ASSESSMENT|GRADING\s+SCHEME|LABORATORY|PRACTICAL\s+HOURS?)\b/i;
+  const metadataLineRegex = /^(?:DEPARTMENT|COLLEGE|FACULTY|INSTITUTE|UNIVERSITY|SCHOOL|AUTONOMOUS|AFFILIATED|ACCREDITED|APPROVED|COURSE\s+CODE|SUBJECT\s+CODE|CODE|CREDITS?|L\s*T\s*P\s*C?|HOURS?|CONTACT\s+HOURS?|SEMESTER|BRANCH|DEGREE|BATCH|REGULATION|YEAR|MAX(?:IMUM)?\s+MARKS|INTERNAL\s+MARKS|EXTERNAL\s+MARKS|EXAM\s+HOURS?|FACULTY\s+NAME|INSTRUCTOR|PROFESSOR|TEACHER)\s*[:\-–]/i;
+  const paginationRegex = /^(?:---+\s*Page\s*\d+.*---+|Page\s+\d+\s+of\s+\d+|Page\s+\d+|[-_=~*]{3,})$/i;
+  const isInstitutional = (line) =>
+    /\b(?:COLLEGE|UNIVERSITY|INSTITUTE|DEPARTMENT|CAMPUS|CENTRE|ACADEMY|POLYTECHNIC|DIRECTORATE|AFFILIATED|AUTONOMOUS|ACCREDITED|APPROVED|GOVERNMENT|SEMESTER|SESSION|BATCH|REGULATION|BRANCH|DEGREE|FACULTY)\b/i.test(line);
+
+  let currentSection = 'HEADER';
+  let courseTitle = '';
+  const units = [];
+  let currentUnit = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (paginationRegex.test(line)) continue;
+
+    const courseMatch = line.match(/^(?:COURSE\s+NAME|COURSE\s+TITLE|SUBJECT)\s*[:\-–]\s*(.+)$/i);
+    if (courseMatch && !courseTitle) {
+      courseTitle = courseMatch[1].trim();
+      continue;
+    }
+
+    if (metadataLineRegex.test(line) || (currentSection === 'HEADER' && isInstitutional(line))) {
+      continue;
+    }
+
+    if (skipSectionHeaderRegex.test(line)) {
+      currentSection = 'SKIP_SECTION';
+      if (currentUnit) {
+        units.push(currentUnit);
+        currentUnit = null;
+      }
+      continue;
+    }
+
+    if (currentSection === 'SKIP_SECTION') {
+      const isNewUnit = unitHeadingRegex.test(line);
+      if (!isNewUnit) continue;
+      currentSection = 'IN_UNIT';
+    }
+
+    const unitMatch = line.match(unitHeadingRegex);
+    if (unitMatch) {
+      currentSection = 'IN_UNIT';
+      if (currentUnit) {
+        units.push(currentUnit);
+      }
+      const rawNum = unitMatch[1] || `${units.length + 1}`;
+      const title = unitMatch[2] ? unitMatch[2].trim() : `Unit ${rawNum}`;
+      currentUnit = {
+        unitNumber: rawNum,
+        title: title || `Unit ${rawNum}`,
+        contentLines: [],
+      };
+      continue;
+    }
+
+    if (currentSection === 'IN_UNIT' && currentUnit) {
+      const cleanLine = line.replace(/^[•●■◆\uF0B7\s\-–—*]+/, '').trim();
+      if (cleanLine && !/^\s*\[?\s*\d+\s*(?:marks?|hours?)\s*\]?\s*$/i.test(cleanLine)) {
+        currentUnit.contentLines.push(cleanLine);
+      }
+      continue;
+    }
+
+    if (currentSection === 'HEADER' && !courseTitle) {
+      if (line.length > 3 && line.length < 60 && !line.includes(':') && !isInstitutional(line)) {
+        courseTitle = line;
+      }
+    }
+  }
+
+  if (currentUnit) {
+    units.push(currentUnit);
+  }
+
+  // If explicit units were found, assemble formatted clean curriculum
+  if (units.length > 0) {
+    const formatted = [];
+    if (courseTitle) formatted.push(`Subject: ${courseTitle}\n`);
+    for (const u of units) {
+      formatted.push(`Unit ${u.unitNumber}: ${u.title}`);
+      if (u.contentLines.length > 0) {
+        formatted.push(u.contentLines.join(' '));
+      }
+      formatted.push('');
+    }
+    return formatted.join('\n').trim();
+  }
+
+  // Fallback: If no Unit headers, return lines stripped of headers and noise
+  const filtered = lines.filter(
+    (l) =>
+      !paginationRegex.test(l) &&
+      !metadataLineRegex.test(l) &&
+      !skipSectionHeaderRegex.test(l) &&
+      !isInstitutional(l) &&
+      l.length > 5
+  );
+
+  return filtered.join('\n').trim();
+}
+
+/**
  * Extract text from an uploaded file (PDF, Image, or plain text)
  * @param {File} file
  * @param {Function} onProgress (optional progress callback 0-100)
@@ -178,10 +292,11 @@ export async function extractTextFromFile(file, onProgress = () => {}) {
       onProgress(Math.round(10 + (pageNum / numPages) * 70));
     }
 
-    // If PDF had selectable text, return it
+    // If PDF had selectable text, clean and return it
     if (fullText.trim().length > 30) {
       onProgress(100);
-      return fullText.trim();
+      const cleaned = cleanExtractedSyllabusText(fullText.trim());
+      return cleaned || fullText.trim();
     }
 
     // Scanned PDF fallback: render each page to canvas and OCR with Tesseract
@@ -214,7 +329,8 @@ export async function extractTextFromFile(file, onProgress = () => {}) {
 
     onProgress(100);
     if (fullText.trim().length > 20) {
-      return fullText.trim();
+      const cleaned = cleanExtractedSyllabusText(fullText.trim());
+      return cleaned || fullText.trim();
     }
     throw new Error('Could not extract readable text from this PDF. Please paste syllabus text manually.');
   }
@@ -247,7 +363,8 @@ export async function extractTextFromFile(file, onProgress = () => {}) {
           'Could not extract readable text from this image. Please upload a clearer syllabus photo or paste the text directly.'
         );
       }
-      return cleaned;
+      const structuredCleaned = cleanExtractedSyllabusText(cleaned);
+      return structuredCleaned || cleaned;
     } finally {
       if (worker) {
         await worker.terminate();
